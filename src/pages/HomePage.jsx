@@ -1,6 +1,7 @@
 import React from "react";
 import PageShell from "../components/PageShell";
 import learnImg from "../images/learn-img.png";
+import translateImg from "../images/translate-img.png";
 import { colors, fontFamily } from "../components/theme";
 
 // Horizontal page gutter: 115px on a 1440px design, shrinking on small screens
@@ -167,6 +168,7 @@ export default function HomePage({ onNavigate = () => {} }) {
           title="Learn to sign any sentence"
           blurb="Enter a sentence that you want to learn! Signly will convert it to ASL and teach you how to sign it with responsive feedback!"
           cta="Translate anything"
+          image={translateImg}
           onClick={() => onNavigate("translate")}
         />
       </section>
