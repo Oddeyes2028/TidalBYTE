@@ -1,5 +1,6 @@
 import React from "react";
 import { colors, fontFamily } from "./theme";
+import signlyLogo from "../images/signly-logo.png";
 
 const glass = {
   background: "rgba(245,240,255,0.085)",
@@ -62,8 +63,17 @@ export default function Navigation({ onNavigate = () => {}, current }) {
           fontSize: "clamp(22px, 2vw, 28px)",
           lineHeight: "24px",
           color: colors.textBrand,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "clamp(8px, 0.8vw, 12px)",
         }}
       >
+        <img
+          src={signlyLogo}
+          alt=""
+          aria-hidden="true"
+          style={{ height: "clamp(24px, 2.2vw, 32px)", width: "auto", display: "block" }}
+        />
         SIGNLY
       </button>
 
