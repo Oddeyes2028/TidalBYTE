@@ -1,5 +1,6 @@
 import React from "react";
 import PageShell from "../components/PageShell";
+import learnImg from "../images/learn-img.png";
 import { colors, fontFamily } from "../components/theme";
 
 // Horizontal page gutter: 115px on a 1440px design, shrinking on small screens
@@ -43,18 +44,9 @@ function FeatureCard({ title, blurb, cta, onClick, image }) {
           overflow: "hidden",
         }}
       >
-        {image ? (
+       
           <img src={image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-        ) : (
-          <>
-            <span style={{ fontWeight: 500, fontSize: 18, lineHeight: "26px", color: colors.textBrand }}>
-              Add image
-            </span>
-            <span style={{ fontWeight: 400, fontSize: 14, lineHeight: "22px", color: colors.textPlaceholder }}>
-              Your ASL image goes here
-            </span>
-          </>
-        )}
+        
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -168,6 +160,7 @@ export default function HomePage({ onNavigate = () => {} }) {
           title="Learn the ASL Alphabet"
           blurb="Build your confidence by starting with the basics and responsive feedback. Learn to sign the ASL alphabet to get started on your ASL journey!"
           cta="Start learning"
+          image={learnImg}
           onClick={() => onNavigate("learn")}
         />
         <FeatureCard
