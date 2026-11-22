@@ -28,8 +28,8 @@ const pinkButton = {
 };
 
 /**
- * Live camera + MediaPipe Holistic skeleton overlay + Reference Hand Diagram +
- * Multi-Dataset Complex Matrix + NVIDIA Nemotron coach.
+ * Live camera + MediaPipe Holistic skeleton overlay + Reference Hand Diagram
+ * stacked directly above NVIDIA Nemotron feedback and suggestions.
  */
 export default function SignTracker({
     targetSign = "A",
@@ -241,7 +241,7 @@ export default function SignTracker({
                 </span>
             </div>
 
-            {/* Camera stage + Reference Visual + Nemotron Real-time Feedback */}
+            {/* Camera stage (left) + Right column (Hand Diagram stacked above Nemotron Feedback) */}
             <div
                 style={{
                     display: "flex",
@@ -253,8 +253,8 @@ export default function SignTracker({
                 {/* Live Video + Skeleton Canvas */}
                 <div
                     style={{
-                        flex: "460 1 280px",
-                        minHeight: 360,
+                        flex: "520 1 300px",
+                        minHeight: 380,
                         position: "relative",
                         borderRadius: 16,
                         overflow: "hidden",
@@ -320,153 +320,173 @@ export default function SignTracker({
                     />
                 </div>
 
-                {/* Visual Hand Reference Card on the side */}
+                {/* Right Column: Hand Diagram on top + NVIDIA Nemotron Feedback below */}
                 <div
                     style={{
+                        flex: "520 1 300px",
                         display: "flex",
                         flexDirection: "column",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: 8,
+                        gap: 16,
                     }}
                 >
-                    <SignVisualCard signKey={targetSign} size={196} />
-                    <span style={{ fontSize: 12, color: colors.textMuted }}>
-                        Aim for this hand posture
-                    </span>
-                </div>
-
-                {/* NVIDIA Nemotron + Complex Matrix Feedback Panel */}
-                <div
-                    style={{
-                        flex: "440 1 280px",
-                        padding: 20,
-                        borderRadius: 16,
-                        background: coaching.isCorrect
-                            ? "rgba(46, 160, 105, 0.18)"
-                            : "rgba(24,29,55,0.75)",
-                        border: coaching.isCorrect
-                            ? "1px solid rgba(110, 231, 183, 0.55)"
-                            : "1px solid rgba(255,246,250,0.18)",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 12,
-                    }}
-                >
+                    {/* Top: Visual Hand Reference Card + How-to-sign guide */}
                     <div
                         style={{
+                            padding: 16,
+                            borderRadius: 16,
+                            background: "rgba(24,29,55,0.75)",
+                            border: "1px solid rgba(255,246,250,0.18)",
                             display: "flex",
-                            justifyContent: "space-between",
+                            flexWrap: "wrap",
                             alignItems: "center",
-                            gap: 8,
+                            gap: 16,
                         }}
                     >
-                        <span
-                            style={{
-                                fontWeight: 700,
-                                fontSize: 20,
-                                color: coaching.isCorrect ? "#86efac" : colors.textBrand,
-                            }}
-                        >
-                            {coaching.headline}
-                        </span>
-                        <span
-                            style={{
-                                fontSize: 13,
-                                padding: "4px 10px",
-                                borderRadius: 999,
-                                background: "rgba(255,246,250,0.1)",
-                                color: colors.textMuted,
-                            }}
-                        >
-                            NVIDIA Nemotron
-                        </span>
-                    </div>
+                        <SignVisualCard signKey={targetSign} size={156} />
 
-                    <p
-                        style={{
-                            margin: 0,
-                            fontSize: 16,
-                            lineHeight: 1.5,
-                            color: colors.textWhite,
-                        }}
-                    >
-                        {coaching.feedback}
-                    </p>
-
-                    {SIGN_GUIDES[targetSign] && (
-                        <div
-                            style={{
-                                padding: 12,
-                                borderRadius: 12,
-                                background: "rgba(255,246,250,0.06)",
-                                fontSize: 15,
-                                lineHeight: 1.45,
-                                color: colors.textMuted,
-                            }}
-                        >
-                            <strong style={{ color: colors.textBrand }}>
-                                How to sign "{displayTarget}":{" "}
-                            </strong>
-                            {SIGN_GUIDES[targetSign]}
-                        </div>
-                    )}
-
-                    {coaching.suggestions?.length > 0 && (
-                        <div>
-                            <strong
+                        <div style={{ flex: "1 1 180px", display: "flex", flexDirection: "column", gap: 6 }}>
+                            <span
                                 style={{
-                                    display: "block",
-                                    marginBottom: 6,
-                                    fontSize: 15,
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    textTransform: "uppercase",
+                                    letterSpacing: 0.5,
                                     color: colors.pinkTranslate,
                                 }}
                             >
-                                Nemotron Suggestions:
+                                Reference Posture
+                            </span>
+                            <strong style={{ fontSize: 18, color: colors.textBrand }}>
+                                How to sign "{displayTarget}"
                             </strong>
-                            <ul
+                            <p
                                 style={{
                                     margin: 0,
-                                    paddingLeft: 20,
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    gap: 6,
                                     fontSize: 15,
+                                    lineHeight: 1.45,
                                     color: colors.textWhite,
                                 }}
                             >
-                                {coaching.suggestions.map((tip, i) => (
-                                    <li key={i}>{tip}</li>
-                                ))}
-                            </ul>
+                                {SIGN_GUIDES[targetSign] ||
+                                    `Form the ASL sign for "${displayTarget}" clearly in view of the camera.`}
+                            </p>
                         </div>
-                    )}
+                    </div>
 
+                    {/* Bottom: NVIDIA Nemotron + Complex Matrix Feedback & Suggestions */}
                     <div
                         style={{
-                            marginTop: "auto",
-                            paddingTop: 10,
-                            borderTop: "1px solid rgba(255,246,250,0.12)",
+                            flex: 1,
+                            padding: 20,
+                            borderRadius: 16,
+                            background: coaching.isCorrect
+                                ? "rgba(46, 160, 105, 0.18)"
+                                : "rgba(24,29,55,0.75)",
+                            border: coaching.isCorrect
+                                ? "1px solid rgba(110, 231, 183, 0.55)"
+                                : "1px solid rgba(255,246,250,0.18)",
                             display: "flex",
-                            flexWrap: "wrap",
-                            justifyContent: "space-between",
-                            gap: 8,
-                            fontSize: 14,
-                            color: colors.textMuted,
+                            flexDirection: "column",
+                            gap: 12,
                         }}
                     >
-                        <span>
-                            Matrix Top Match:{" "}
-                            <strong style={{ color: colors.textWhite }}>
-                                {matrixResult?.topMatch?.replace(/_/g, " ") || "—"}
-                            </strong>
-                        </span>
-                        <span>
-                            Confidence:{" "}
-                            <strong style={{ color: colors.textWhite }}>
-                                {confidencePct}%
-                            </strong>
-                        </span>
+                        <div
+                            style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                gap: 8,
+                            }}
+                        >
+                            <span
+                                style={{
+                                    fontWeight: 700,
+                                    fontSize: 20,
+                                    color: coaching.isCorrect ? "#86efac" : colors.textBrand,
+                                }}
+                            >
+                                {coaching.headline}
+                            </span>
+                            <span
+                                style={{
+                                    fontSize: 13,
+                                    padding: "4px 10px",
+                                    borderRadius: 999,
+                                    background: "rgba(255,246,250,0.1)",
+                                    color: colors.textMuted,
+                                }}
+                            >
+                                NVIDIA Nemotron
+                            </span>
+                        </div>
+
+                        <p
+                            style={{
+                                margin: 0,
+                                fontSize: 16,
+                                lineHeight: 1.5,
+                                color: colors.textWhite,
+                            }}
+                        >
+                            {coaching.feedback}
+                        </p>
+
+                        {coaching.suggestions?.length > 0 && (
+                            <div>
+                                <strong
+                                    style={{
+                                        display: "block",
+                                        marginBottom: 6,
+                                        fontSize: 15,
+                                        color: colors.pinkTranslate,
+                                    }}
+                                >
+                                    Nemotron Suggestions:
+                                </strong>
+                                <ul
+                                    style={{
+                                        margin: 0,
+                                        paddingLeft: 20,
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        gap: 6,
+                                        fontSize: 15,
+                                        color: colors.textWhite,
+                                    }}
+                                >
+                                    {coaching.suggestions.map((tip, i) => (
+                                        <li key={i}>{tip}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        <div
+                            style={{
+                                marginTop: "auto",
+                                paddingTop: 10,
+                                borderTop: "1px solid rgba(255,246,250,0.12)",
+                                display: "flex",
+                                flexWrap: "wrap",
+                                justifyContent: "space-between",
+                                gap: 8,
+                                fontSize: 14,
+                                color: colors.textMuted,
+                            }}
+                        >
+                            <span>
+                                Matrix Top Match:{" "}
+                                <strong style={{ color: colors.textWhite }}>
+                                    {matrixResult?.topMatch?.replace(/_/g, " ") || "—"}
+                                </strong>
+                            </span>
+                            <span>
+                                Confidence:{" "}
+                                <strong style={{ color: colors.textWhite }}>
+                                    {confidencePct}%
+                                </strong>
+                            </span>
+                        </div>
                     </div>
                 </div>
             </div>
