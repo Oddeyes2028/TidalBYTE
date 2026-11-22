@@ -4,7 +4,7 @@ import Navigation from "./Navigation";
 import { colors, fontFamily, STAGE_WIDTH } from "./theme";
 
 /**
- * Shared responsive frame: full-bleed gradient background and a centered
+ * Shared responsive frame: full-bleed page background and a centered
  * content column (max 1440px) with the navigation on top.
  */
 export default function PageShell({ current, onNavigate, children }) {
