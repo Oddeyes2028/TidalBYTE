@@ -22,28 +22,50 @@ const panel = {
 export default function LearnPage({ onNavigate = () => { } }) {
   const [levelIdx, setLevelIdx] = useState(0);
   const [stepIdx, setStepIdx] = useState(0);
-  const [unlockedLevelIdx, setUnlockedLevelIdx] = useState(0);
-  const [currentStepPassed, setCurrentStepPassed] = useState(false);
+  const [highestUnlockedLevel, setHighestUnlockedLevel] = useState(0);
+  // Tracks completed letters permanently so going back never re-locks levels or loses checkmarks
+  const [completedLetters, setCompletedLetters] = useState(() => new Set());
 
   const activeLevel = LESSON_LEVELS[levelIdx];
   const targetLetter = activeLevel.letters[stepIdx];
+  const isCurrentLetterCompleted = completedLetters.has(targetLetter);
 
-  const handleSignSuccess = () => {
-    setCurrentStepPassed(true);
+  const handleSignSuccess = (signedLetter) => {
+    setCompletedLetters((prev) => {
+      const next = new Set(prev);
+      next.add(signedLetter);
+
+      // Unlock next level immediately if every letter in the current level is now completed
+      const allInLevelDone = activeLevel.letters.every((ltr) => next.has(ltr));
+      if (allInLevelDone && levelIdx + 1 < LESSON_LEVELS.length) {
+        setHighestUnlockedLevel((currMax) => Math.max(currMax, levelIdx + 1));
+      }
+      return next;
+    });
+  };
+
+  const handlePrevious = () => {
+    if (stepIdx > 0) {
+      setStepIdx((prev) => prev - 1);
+    } else if (levelIdx > 0) {
+      const prevLevelIdx = levelIdx - 1;
+      setLevelIdx(prevLevelIdx);
+      setStepIdx(LESSON_LEVELS[prevLevelIdx].letters.length - 1);
+    }
   };
 
   const handleNext = () => {
-    setCurrentStepPassed(false);
     if (stepIdx + 1 < activeLevel.letters.length) {
       setStepIdx((prev) => prev + 1);
     } else if (levelIdx + 1 < LESSON_LEVELS.length) {
       const nextLevel = levelIdx + 1;
-      setUnlockedLevelIdx((prev) => Math.max(prev, nextLevel));
+      setHighestUnlockedLevel((prev) => Math.max(prev, nextLevel));
       setLevelIdx(nextLevel);
       setStepIdx(0);
     }
   };
 
+  const isFirstLetterOverall = levelIdx === 0 && stepIdx === 0;
   const isFinalStepOfAllLevels =
     levelIdx === LESSON_LEVELS.length - 1 &&
     stepIdx === activeLevel.letters.length - 1;
@@ -126,15 +148,17 @@ export default function LearnPage({ onNavigate = () => { } }) {
               Lesson Curriculum
             </h2>
             <span style={{ fontSize: 15, color: colors.textMuted }}>
-              Complete every letter in a level to unlock the next level
+              Click any unlocked level or letter below to review without losing progress
             </span>
           </div>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
             {LESSON_LEVELS.map((lvl, idx) => {
-              const unlocked = idx <= unlockedLevelIdx;
+              const unlocked = idx <= highestUnlockedLevel;
               const active = idx === levelIdx;
-              const completed = idx < unlockedLevelIdx;
+              const levelCompleted = lvl.letters.every((ltr) =>
+                completedLetters.has(ltr)
+              );
 
               return (
                 <button
@@ -143,7 +167,6 @@ export default function LearnPage({ onNavigate = () => { } }) {
                   onClick={() => {
                     setLevelIdx(idx);
                     setStepIdx(0);
-                    setCurrentStepPassed(false);
                   }}
                   style={{
                     padding: "10px 16px",
@@ -162,13 +185,13 @@ export default function LearnPage({ onNavigate = () => { } }) {
                     cursor: unlocked ? "pointer" : "not-allowed",
                   }}
                 >
-                  {lvl.title} {completed ? "✓" : unlocked ? "" : "🔒"}
+                  {lvl.title} {levelCompleted ? "✓" : unlocked ? "" : "🔒"}
                 </button>
               );
             })}
           </div>
 
-          {/* Letter Progress Pills inside Current Level */}
+          {/* Interactive Letter Pills inside Current Level */}
           <div
             style={{
               display: "flex",
@@ -178,33 +201,49 @@ export default function LearnPage({ onNavigate = () => { } }) {
             }}
           >
             {activeLevel.letters.map((letter, idx) => {
-              const done = idx < stepIdx || (idx === stepIdx && currentStepPassed);
+              const done = completedLetters.has(letter);
               const current = idx === stepIdx;
+              const canJumpTo =
+                done ||
+                idx <= stepIdx ||
+                levelIdx < highestUnlockedLevel ||
+                (idx > 0 && completedLetters.has(activeLevel.letters[idx - 1]));
+
               return (
-                <span
+                <button
                   key={letter}
+                  disabled={!canJumpTo}
+                  onClick={() => setStepIdx(idx)}
+                  title={
+                    canJumpTo
+                      ? `Practice letter ${letter}`
+                      : `Complete ${activeLevel.letters[idx - 1]} first`
+                  }
                   style={{
-                    width: 42,
-                    height: 42,
+                    width: 44,
+                    height: 44,
                     borderRadius: 12,
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
+                    fontFamily,
                     fontWeight: 700,
                     fontSize: 18,
+                    cursor: canJumpTo ? "pointer" : "not-allowed",
                     background: done
                       ? "rgba(46, 160, 105, 0.35)"
                       : current
                         ? colors.pinkLearn
                         : "rgba(255,246,250,0.08)",
-                    color: current && !done ? colors.textOnPink : colors.textWhite,
+                    color:
+                      current && !done ? colors.textOnPink : colors.textWhite,
                     border: current
                       ? "2px solid #fff"
                       : "1px solid rgba(255,246,250,0.2)",
                   }}
                 >
                   {letter}
-                </span>
+                </button>
               );
             })}
 
@@ -231,46 +270,73 @@ export default function LearnPage({ onNavigate = () => { } }) {
           <div
             style={{
               display: "flex",
-              justifyContent: "flex-end",
+              flexWrap: "wrap",
+              justifyContent: "space-between",
               alignItems: "center",
               gap: 16,
               paddingTop: 8,
             }}
           >
-            {!currentStepPassed && (
-              <span style={{ fontSize: 15, color: colors.textMuted }}>
-                Sign "{targetLetter}" accurately to unlock the next step
-              </span>
-            )}
-
             <button
-              disabled={!currentStepPassed || isFinalStepOfAllLevels}
-              onClick={handleNext}
+              disabled={isFirstLetterOverall}
+              onClick={handlePrevious}
               style={{
-                border: "none",
+                border: "1px solid rgba(255,246,250,0.28)",
                 borderRadius: 12,
-                padding: "12px 26px",
+                padding: "12px 22px",
                 fontFamily,
                 fontWeight: 600,
-                fontSize: 17,
-                background: currentStepPassed
-                  ? colors.pinkCta
-                  : "rgba(255,246,250,0.15)",
-                color: currentStepPassed
-                  ? colors.textOnPink
-                  : colors.textPlaceholder,
-                cursor: currentStepPassed ? "pointer" : "not-allowed",
+                fontSize: 16,
+                background: isFirstLetterOverall
+                  ? "rgba(255,246,250,0.06)"
+                  : "rgba(24,29,55,0.85)",
+                color: isFirstLetterOverall
+                  ? colors.textPlaceholder
+                  : colors.textWhite,
+                opacity: isFirstLetterOverall ? 0.5 : 1,
+                cursor: isFirstLetterOverall ? "not-allowed" : "pointer",
               }}
             >
-              {isFinalStepOfAllLevels && currentStepPassed
-                ? "All Levels Complete!"
-                : stepIdx + 1 < activeLevel.letters.length
-                  ? `Next Letter (${activeLevel.letters[stepIdx + 1]}) →`
-                  : "Unlock Next Level →"}
+              ← Previous Letter
             </button>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              {!isCurrentLetterCompleted && (
+                <span style={{ fontSize: 15, color: colors.textMuted }}>
+                  Sign "{targetLetter}" accurately to unlock the next step
+                </span>
+              )}
+
+              <button
+                disabled={!isCurrentLetterCompleted || isFinalStepOfAllLevels}
+                onClick={handleNext}
+                style={{
+                  border: "none",
+                  borderRadius: 12,
+                  padding: "12px 26px",
+                  fontFamily,
+                  fontWeight: 600,
+                  fontSize: 17,
+                  background: isCurrentLetterCompleted
+                    ? colors.pinkCta
+                    : "rgba(255,246,250,0.15)",
+                  color: isCurrentLetterCompleted
+                    ? colors.textOnPink
+                    : colors.textPlaceholder,
+                  cursor: isCurrentLetterCompleted ? "pointer" : "not-allowed",
+                }}
+              >
+                {isFinalStepOfAllLevels && isCurrentLetterCompleted
+                  ? "All Levels Complete!"
+                  : stepIdx + 1 < activeLevel.letters.length
+                    ? `Next Letter (${activeLevel.letters[stepIdx + 1]}) →`
+                    : "Next Level →"}
+              </button>
+            </div>
           </div>
         </section>
       </main>
     </PageShell>
   );
 }
+

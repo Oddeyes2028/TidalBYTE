@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { DrawingUtils, HolisticLandmarker } from "@mediapipe/tasks-vision";
 import { getHolisticLandmarker } from "../MediapipeService";
-import { KAGGLE_ASL_MATRIX, SIGN_GUIDES } from "../SignDatabase";
+import {
+    ASL_CITIZEN_PHRASES,
+    KAGGLE_ASL_MATRIX,
+    SIGN_GUIDES,
+} from "../SignDatabase";
 import {
     evaluateComplexMatrix,
     resetMotionHistory,
@@ -23,8 +27,7 @@ const pinkButton = {
 };
 
 /**
- * Live camera + MediaPipe Holistic skeleton overlay + Complex Matrix + NVIDIA Nemotron coach.
- * Preserves Signly's dark glassmorphism aesthetic.
+ * Live camera + MediaPipe Holistic skeleton overlay + Multi-Dataset Complex Matrix + NVIDIA Nemotron coach.
  */
 export default function SignTracker({
     targetSign = "A",
@@ -46,14 +49,13 @@ export default function SignTracker({
     const [coaching, setCoaching] = useState({
         isCorrect: false,
         score: 0,
-        headline: `Ready to sign "${targetSign}"`,
+        headline: `Ready to sign "${targetSign.replace(/_/g, " ")}"`,
         feedback:
             SIGN_GUIDES[targetSign] ||
-            `Show the sign for "${targetSign}" in front of your camera.`,
+            `Show the sign for "${targetSign.replace(/_/g, " ")}" in front of your camera.`,
         suggestions: [],
     });
 
-    // Reset motion history & coaching when target sign changes
     useEffect(() => {
         resetMotionHistory();
         successNotifiedRef.current = false;
@@ -61,10 +63,10 @@ export default function SignTracker({
         setCoaching({
             isCorrect: false,
             score: 0,
-            headline: `Target Sign: "${targetSign}"`,
+            headline: `Target Sign: "${targetSign.replace(/_/g, " ")}"`,
             feedback:
                 SIGN_GUIDES[targetSign] ||
-                `Form the sign for "${targetSign}" clearly in view of the camera.`,
+                `Form the sign for "${targetSign.replace(/_/g, " ")}" clearly in view of the camera.`,
             suggestions: [],
         });
     }, [targetSign]);
@@ -103,7 +105,6 @@ export default function SignTracker({
                         lastVideoTime = video.currentTime;
                         const result = landmarker.detectForVideo(video, performance.now());
 
-                        // Draw live hand & pose landmarks
                         canvasCtx.save();
                         canvasCtx.clearRect(
                             0,
@@ -137,18 +138,18 @@ export default function SignTracker({
                         }
                         canvasCtx.restore();
 
-                        // Run Complex Matrix pattern matching
                         const evalResult = evaluateComplexMatrix(
                             result,
-                            KAGGLE_ASL_MATRIX
+                            KAGGLE_ASL_MATRIX,
+                            ASL_CITIZEN_PHRASES,
+                            targetSign
                         );
                         setMatrixResult(evalResult);
 
-                        // Periodically query NVIDIA Nemotron for coaching & verification
                         const now = Date.now();
                         if (
                             evalResult.topMatch &&
-                            now - lastEvalRef.current > 1500 &&
+                            now - lastEvalRef.current > 1400 &&
                             !evaluatingRef.current
                         ) {
                             lastEvalRef.current = now;
@@ -197,6 +198,7 @@ export default function SignTracker({
     const confidencePct = matrixResult
         ? Math.round(matrixResult.confidence * 100)
         : 0;
+    const displayTarget = targetSign.replace(/_/g, " ");
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -217,7 +219,7 @@ export default function SignTracker({
                         color: colors.textBrand,
                     }}
                 >
-                    Target: "{targetSign}"
+                    Target: "{displayTarget}"
                 </span>
 
                 <span
@@ -385,7 +387,9 @@ export default function SignTracker({
                                 color: colors.textMuted,
                             }}
                         >
-                            <strong style={{ color: colors.textBrand }}>How to sign "{targetSign}": </strong>
+                            <strong style={{ color: colors.textBrand }}>
+                                How to sign "{displayTarget}":{" "}
+                            </strong>
                             {SIGN_GUIDES[targetSign]}
                         </div>
                     )}
@@ -436,7 +440,7 @@ export default function SignTracker({
                         <span>
                             Matrix Top Match:{" "}
                             <strong style={{ color: colors.textWhite }}>
-                                {matrixResult?.topMatch || "—"}
+                                {matrixResult?.topMatch?.replace(/_/g, " ") || "—"}
                             </strong>
                         </span>
                         <span>

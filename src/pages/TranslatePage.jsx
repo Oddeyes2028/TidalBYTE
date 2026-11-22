@@ -1,7 +1,11 @@
 import React, { useState } from "react";
 import PageShell from "../components/PageShell";
 import SignTracker from "../components/SignTracker";
-import { SIGN_GUIDES } from "../SignDatabase";
+import {
+  ASL_CITIZEN_PHRASES,
+  INCLUDED_DATASETS,
+  parseTextToSignSteps,
+} from "../SignDatabase";
 import { colors, fontFamily } from "../components/theme";
 
 const GUTTER = "clamp(20px, 8vw, 115px)";
@@ -40,22 +44,28 @@ const pinkButton = {
 };
 
 export default function TranslatePage({ onNavigate = () => { } }) {
-  const [sentence, setSentence] = useState("HELLO");
+  const [sentence, setSentence] = useState("PLEASE HELP");
   const [focused, setFocused] = useState(false);
-  const [tokens, setTokens] = useState(["H", "E", "L", "L", "O"]);
-  const [activeTokenIdx, setActiveTokenIdx] = useState(0);
+  const [steps, setSteps] = useState(() =>
+    parseTextToSignSteps("PLEASE HELP")
+  );
+  const [activeStepIdx, setActiveStepIdx] = useState(0);
 
-  const submit = () => {
-    const cleaned = sentence
-      .toUpperCase()
-      .replace(/[^A-Z]/g, "")
-      .trim();
-    if (!cleaned) return;
-    setTokens(cleaned.split(""));
-    setActiveTokenIdx(0);
+  const submit = (overrideText) => {
+    const query = typeof overrideText === "string" ? overrideText : sentence;
+    const parsed = parseTextToSignSteps(query);
+    if (!parsed.length) return;
+    setSteps(parsed);
+    setActiveStepIdx(0);
   };
 
-  const currentSign = tokens[activeTokenIdx] || "A";
+  const currentStep = steps[activeStepIdx] || {
+    token: "PLEASE",
+    display: "PLEASE",
+    type: "gesture",
+    dataset: "Microsoft ASL Citizen",
+    guide: ASL_CITIZEN_PHRASES.PLEASE.guide,
+  };
 
   return (
     <PageShell current="translate" onNavigate={onNavigate}>
@@ -114,8 +124,21 @@ export default function TranslatePage({ onNavigate = () => { } }) {
         }}
       >
         {/* Sentence / Phrase input */}
-        <section style={{ ...panel, gap: 12 }}>
-          <h2 style={heading}>Your letter, word, or phrase</h2>
+        <section style={{ ...panel, gap: 14 }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <h2 style={heading}>Your letter, word, or phrase</h2>
+            <span style={{ fontSize: 14, color: colors.textMuted }}>
+              Known phrases teach full ASL gestures; other words fingerspell letter-by-letter
+            </span>
+          </div>
 
           <div
             style={{
@@ -147,7 +170,7 @@ export default function TranslatePage({ onNavigate = () => { } }) {
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
                 onKeyDown={(e) => e.key === "Enter" && submit()}
-                placeholder="Type a letter, word, or sentence you’d like to learn…"
+                placeholder="Try 'Nice to meet you', 'Thank you', 'Please', 'I love you'…"
                 aria-label="Your sentence"
                 style={{
                   width: "100%",
@@ -166,11 +189,55 @@ export default function TranslatePage({ onNavigate = () => { } }) {
             </label>
 
             <button
-              onClick={submit}
+              onClick={() => submit()}
               style={{ ...pinkButton, background: colors.pinkCta }}
             >
               Translate to ASL
             </button>
+          </div>
+
+          {/* Quick-try ASL Citizen phrase pills */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <span
+              style={{
+                fontSize: 14,
+                color: colors.textMuted,
+                alignSelf: "center",
+                marginRight: 4,
+              }}
+            >
+              Quick ASL Citizen Phrases:
+            </span>
+            {[
+              "PLEASE",
+              "THANK YOU",
+              "HELLO",
+              "NICE TO MEET YOU",
+              "HOW ARE YOU",
+              "I LOVE YOU",
+              "SORRY",
+              "HELP",
+            ].map((phrase) => (
+              <button
+                key={phrase}
+                onClick={() => {
+                  setSentence(phrase);
+                  submit(phrase);
+                }}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 999,
+                  border: "1px solid rgba(255,246,250,0.22)",
+                  background: "rgba(255,246,250,0.08)",
+                  color: colors.textWhite,
+                  fontFamily,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                {phrase}
+              </button>
+            ))}
           </div>
         </section>
 
@@ -185,13 +252,13 @@ export default function TranslatePage({ onNavigate = () => { } }) {
               gap: 12,
             }}
           >
-            <h2 style={heading}>How to sign it (click any letter to practice)</h2>
+            <h2 style={heading}>How to sign it (click any step to practice)</h2>
             <span style={{ fontSize: 15, color: colors.textMuted }}>
-              Step {activeTokenIdx + 1} of {tokens.length}
+              Step {activeStepIdx + 1} of {steps.length}
             </span>
           </div>
 
-          {/* Character cards showing visual handshape guide */}
+          {/* Gesture & Letter Step Cards */}
           <div
             style={{
               display: "flex",
@@ -199,14 +266,15 @@ export default function TranslatePage({ onNavigate = () => { } }) {
               gap: 12,
             }}
           >
-            {tokens.map((char, idx) => {
-              const isSelected = idx === activeTokenIdx;
+            {steps.map((step, idx) => {
+              const isSelected = idx === activeStepIdx;
+              const isGesture = step.type === "gesture";
               return (
                 <button
-                  key={`${char}-${idx}`}
-                  onClick={() => setActiveTokenIdx(idx)}
+                  key={`${step.token}-${idx}`}
+                  onClick={() => setActiveStepIdx(idx)}
                   style={{
-                    minWidth: 72,
+                    minWidth: isGesture ? 136 : 74,
                     padding: "12px 16px",
                     borderRadius: 16,
                     border: isSelected
@@ -224,16 +292,18 @@ export default function TranslatePage({ onNavigate = () => { } }) {
                     gap: 4,
                   }}
                 >
-                  <span style={{ fontSize: 26, fontWeight: 700 }}>{char}</span>
+                  <span style={{ fontSize: isGesture ? 19 : 26, fontWeight: 700 }}>
+                    {step.display}
+                  </span>
                   <span style={{ fontSize: 12, color: colors.pinkTranslate }}>
-                    ASL Sign
+                    {isGesture ? "ASL Gesture" : "Fingerspell"}
                   </span>
                 </button>
               );
             })}
           </div>
 
-          {/* Detailed visual demonstration card for the selected sign */}
+          {/* Detailed Visual Demonstration Card */}
           <div
             style={{
               padding: 16,
@@ -248,8 +318,8 @@ export default function TranslatePage({ onNavigate = () => { } }) {
           >
             <div
               style={{
-                width: 96,
-                height: 96,
+                minWidth: 120,
+                padding: "14px 16px",
                 borderRadius: 16,
                 background: "rgba(247, 124, 174, 0.18)",
                 border: "1px solid rgba(247, 124, 174, 0.45)",
@@ -262,28 +332,50 @@ export default function TranslatePage({ onNavigate = () => { } }) {
             >
               <span
                 style={{
-                  fontSize: 42,
+                  fontSize: currentStep.type === "gesture" ? 22 : 42,
                   fontWeight: 700,
                   color: colors.textBrand,
+                  textAlign: "center",
                 }}
               >
-                {currentSign}
+                {currentStep.display}
               </span>
               <span style={{ fontSize: 11, color: colors.pinkTranslate }}>
-                REFERENCE
+                {currentStep.type === "gesture" ? "PHRASE GESTURE" : "LETTER"}
               </span>
             </div>
 
             <div style={{ flex: "1 1 260px" }}>
-              <h3
+              <div
                 style={{
-                  margin: "0 0 6px",
-                  fontSize: 19,
-                  color: colors.textBrand,
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: 10,
+                  marginBottom: 6,
                 }}
               >
-                Demonstration Guide for "{currentSign}"
-              </h3>
+                <h3
+                  style={{
+                    margin: 0,
+                    fontSize: 19,
+                    color: colors.textBrand,
+                  }}
+                >
+                  How to sign "{currentStep.display}"
+                </h3>
+                <span
+                  style={{
+                    fontSize: 12,
+                    padding: "3px 10px",
+                    borderRadius: 999,
+                    background: "rgba(255,246,250,0.1)",
+                    color: colors.pinkTranslate,
+                  }}
+                >
+                  Source: {currentStep.dataset}
+                </span>
+              </div>
               <p
                 style={{
                   margin: 0,
@@ -292,8 +384,7 @@ export default function TranslatePage({ onNavigate = () => { } }) {
                   color: colors.textWhite,
                 }}
               >
-                {SIGN_GUIDES[currentSign] ||
-                  `Form the ASL posture for "${currentSign}" facing the camera.`}
+                {currentStep.guide}
               </p>
             </div>
           </div>
@@ -304,18 +395,38 @@ export default function TranslatePage({ onNavigate = () => { } }) {
           <h2 style={heading}>Live practice & NVIDIA Nemotron feedback</h2>
 
           <SignTracker
-            targetSign={currentSign}
+            targetSign={currentStep.token}
             mode="translator"
             onSignSuccess={() => {
-              if (activeTokenIdx + 1 < tokens.length) {
+              if (activeStepIdx + 1 < steps.length) {
                 setTimeout(() => {
-                  setActiveTokenIdx((prev) =>
-                    prev + 1 < tokens.length ? prev + 1 : prev
+                  setActiveStepIdx((prev) =>
+                    prev + 1 < steps.length ? prev + 1 : prev
                   );
-                }, 1200);
+                }, 1300);
               }
             }}
           />
+
+          {/* Active Datasets Footer */}
+          <div
+            style={{
+              paddingTop: 12,
+              borderTop: "1px solid rgba(255,246,250,0.14)",
+              fontSize: 13,
+              color: colors.textMuted,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 12,
+            }}
+          >
+            <strong style={{ color: colors.textBrand }}>Active Datasets:</strong>
+            {INCLUDED_DATASETS.map((ds) => (
+              <span key={ds.name}>
+                • {ds.name} ({ds.coverage})
+              </span>
+            ))}
+          </div>
         </section>
       </main>
 
