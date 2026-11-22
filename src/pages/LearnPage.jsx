@@ -5,6 +5,7 @@ import { LESSON_LEVELS } from "../SignDatabase";
 import { colors, fontFamily } from "../components/theme";
 
 const GUTTER = "clamp(20px, 8vw, 115px)";
+const SKIP_WAIT_SECONDS = 5;
 
 const panel = {
   boxSizing: "border-box",
@@ -34,7 +35,7 @@ export default function LearnPage({ onNavigate = () => { } }) {
   const isCurrentLetterSkipped = skippedLetters.has(targetLetter);
   const canAdvance = isCurrentLetterCompleted || isCurrentLetterSkipped;
 
-  // 10-second timer per letter so users can skip to the next step/level and return later
+  // 5-second timer per letter so users can skip to the next step/level and return later
   useEffect(() => {
     setSecondsOnStep(0);
     if (isCurrentLetterCompleted || isCurrentLetterSkipped) return;
@@ -117,8 +118,9 @@ export default function LearnPage({ onNavigate = () => { } }) {
   const isFinalStepOfAllLevels =
     levelIdx === LESSON_LEVELS.length - 1 &&
     stepIdx === activeLevel.letters.length - 1;
-  const skipUnlocked = secondsOnStep >= 10 && !isCurrentLetterCompleted;
-  const remainingSkipSeconds = Math.max(0, 10 - secondsOnStep);
+  const skipUnlocked =
+    secondsOnStep >= SKIP_WAIT_SECONDS && !isCurrentLetterCompleted;
+  const remainingSkipSeconds = Math.max(0, SKIP_WAIT_SECONDS - secondsOnStep);
 
   return (
     <PageShell current="learn" onNavigate={onNavigate}>

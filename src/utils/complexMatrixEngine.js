@@ -5,14 +5,22 @@
  *  - Microsoft ASL Citizen (crowdsourced multi-angle hand variations & whole-word gestures)
  *  - WLASL & ChaLearn IsoGD (temporal motion envelopes & signer angle tolerances)
  *
- * Includes high-precision geometric & temporal disambiguation for:
- *  - Q (downward-pointing index + thumb with foreshortening invariance)
- *  - S vs. T vs. A vs. M vs. N (thumb wrapped across fist vs. tucked between index/middle)
- *  - Z (corner-turning & multi-segment zig-zag trajectory tracker with persistence hold)
- *  - P vs. K, R vs. U vs. V, G vs. H, and dynamic J
+ * Upgraded in this revision:
+ *  1. True Left- & Right-Hand Mirror Invariance:
+ *     Projects landmarks into a handedness-aware 3D palm basis where +X ALWAYS points
+ *     from the index side toward the pinky side for BOTH right and left hands.
+ *  2. Closed-Fist Disambiguation (M vs. T vs. S vs. E vs. N vs. A):
+ *     Uses exact thumb-tip nesting relative to PIP/MCP knuckles & fingertip palm-Y reach.
+ *  3. R vs. U vs. V Precision:
+ *     Checks lateral crossing (R: middle tip crosses to thumb/index side of index tip),
+ *     tight parallel contact (U), and V separation (V) for both hands.
+ *  4. Reliable Z-Motion Completion:
+ *     Detects 2-corner zig-zag OR 3-segment Z-strokes regardless of left/right drawing direction,
+ *     and holds the verified Z state for 2.5 seconds so Nemotron & lesson progression always catch it.
+ *  5. Preserves all existing calibrated rules for P, Q, G, H, J, K, L, B, C, D, F, I, O, W, X, Y.
  */
 
-const TRAIL_LIMIT = 45;
+const TRAIL_LIMIT = 50;
 let pinkyTrail = [];
 let indexTrail = [];
 let wristTrail = [];
@@ -60,13 +68,15 @@ function jointAngle(a, b, c) {
 }
 
 /**
- * Projects all 21 hand landmarks into a rotation-invariant 3D palm basis:
+ * Projects all 21 hand landmarks into a handedness-invariant 3D palm basis:
  *  - origin: wrist (0)
- *  - eY: wrist (0) -> middle MCP (9) (palm length axis)
- *  - eX: index MCP (5) -> pinky MCP (17) orthogonalized (knuckle width axis)
- *  - eZ: normal vector out of the palm
+ *  - eY: wrist (0) -> middle MCP (9) (palm length axis, +Y points toward fingertips)
+ *  - eX: orthogonalized vector from index MCP (5) -> pinky MCP (17)
+ *        (Guaranteed +X = pinky side, -X = thumb/index side for BOTH left and right hands!)
+ *  - eZ: cross(eX, eY) (normal vector pointing out of the palm face for right hand;
+ *        flipped for left hand so +Z ALWAYS points out of the palm face!)
  */
-function projectToPalmFrame(hand) {
+function projectToPalmFrame(hand, isLeftHand) {
     const wrist = hand[0];
     const indexMcp = hand[5];
     const middleMcp = hand[9];
@@ -74,9 +84,21 @@ function projectToPalmFrame(hand) {
 
     const palmScale = Math.max(dist3(wrist, middleMcp), 1e-4);
     const eY = norm3(sub3(middleMcp, wrist));
+
+    // Project (pinkyMcp - indexMcp) perpendicular to eY so +eX ALWAYS points from index -> pinky
     const rawX = sub3(pinkyMcp, indexMcp);
-    const eZ = norm3(cross3(rawX, eY));
-    const eX = norm3(cross3(eY, eZ));
+    const projX = sub3(rawX, {
+        x: eY.x * dot3(rawX, eY),
+        y: eY.y * dot3(rawX, eY),
+        z: eY.z * dot3(rawX, eY),
+    });
+    const eX = norm3(projX);
+
+    // Palm-outward normal (+Z points out of the front/palmar surface for BOTH hands)
+    let eZ = norm3(cross3(eX, eY));
+    if (isLeftHand) {
+        eZ = { x: -eZ.x, y: -eZ.y, z: -eZ.z };
+    }
 
     const local = hand.map((pt) => {
         const rel = sub3(pt, wrist);
@@ -118,12 +140,13 @@ export function evaluateComplexMatrix(
         };
     }
 
-    const { local, eY, palmScale } = projectToPalmFrame(hand);
-    if (isLeftHand) {
-        for (const pt of local) pt.x = -pt.x;
-    }
+    // Canonical palm coordinates where:
+    //  -X = thumb/index side, +X = pinky side (for BOTH right and left hands!)
+    //  +Y = from wrist toward fingertips
+    //  +Z = outward from palm face
+    const { local, eY, palmScale } = projectToPalmFrame(hand, isLeftHand);
 
-    // Record palm-normalized temporal trails so Z and J work at any distance from the camera
+    // Record palm-normalized temporal trails for Z and J
     pinkyTrail.push({ x: hand[20].x, y: hand[20].y, scale: palmScale });
     indexTrail.push({ x: hand[8].x, y: hand[8].y, scale: palmScale });
     wristTrail.push({ x: hand[0].x, y: hand[0].y, z: hand[0].z || 0 });
@@ -131,20 +154,31 @@ export function evaluateComplexMatrix(
     if (indexTrail.length > TRAIL_LIMIT) indexTrail.shift();
     if (wristTrail.length > TRAIL_LIMIT) wristTrail.shift();
 
-    // Joint-bend angles (PIP angles)
+    // Joint-bend angles (PIP angles: ~3.14 = straight, < 1.8 = curled)
     const indexBend = jointAngle(hand[5], hand[6], hand[8]);
     const middleBend = jointAngle(hand[9], hand[10], hand[12]);
     const ringBend = jointAngle(hand[13], hand[14], hand[16]);
     const pinkyBend = jointAngle(hand[17], hand[18], hand[20]);
     const thumbBend = jointAngle(hand[2], hand[3], hand[4]);
 
-    // World-space pointing directions (in screen coordinates, +Y is DOWNWARD)
+    // World-space pointing directions (+Y is downward in MediaPipe image coords)
     const indexDirWorld = norm3(sub3(hand[8], hand[5]));
     const middleDirWorld = norm3(sub3(hand[12], hand[9]));
-    const thumbDirWorld = norm3(sub3(hand[4], hand[2]));
 
-    // Palm-frame relative coordinates for close/overlapping joint disambiguation
+    // Canonical knuckle X references (-X = index side, +X = pinky side)
+    const indexMcpX = local[5].x;
+    const pinkyMcpX = local[17].x;
+
+    // Normalized lateral thumb position across the knuckles:
+    //  < 0.0  => outside index finger (A)
+    //  0.0..0.42 => between index and middle fingers (T)
+    //  0.42..0.78 => across middle/ring front (S)
+    //  0.75..1.15 => tucked deep past ring/pinky knuckles under 3 fingers (M)
+    const knuckleSpanX = Math.max(pinkyMcpX - indexMcpX, 0.25);
+    const thumbAcrossRatio = (local[4].x - indexMcpX) / knuckleSpanX;
+
     const profile = {
+        handedness: isLeftHand ? "Left" : "Right",
         thumb: dist3(local[4], local[0]),
         index: dist3(local[8], local[0]),
         middle: dist3(local[12], local[0]),
@@ -155,30 +189,37 @@ export function evaluateComplexMatrix(
         ringBend,
         pinkyBend,
         thumbBend,
-        // Lateral & depth separation between index (8) and middle (12) tips
+        // R vs. U vs. V measurements in canonical palm-X (-X = index side, +X = pinky side)
         indexMiddleTipGapX: local[12].x - local[8].x,
+        indexMiddlePipGapX: local[10].x - local[6].x,
         indexMiddleTipDist: dist3(local[8], local[12]),
-        // Thumb tip (4) position relative to curled fingers & PIP knuckles
+        // Thumb canonical coordinates
         thumbTipX: local[4].x,
         thumbTipY: local[4].y,
         thumbTipZ: local[4].z,
-        // Distance from thumb tip (4) to index PIP (6) and middle PIP (10) (key for T vs S vs A)
+        thumbAcrossRatio,
         thumbToIndexPip: dist3(local[4], local[6]),
         thumbToMiddlePip: dist3(local[4], local[10]),
-        // Vertical reach of curled fingertips (8, 12, 16) relative to thumb tip (4) in palm-Y
+        // Fingertip palm-Y positions (smaller Y = curled deeper down toward palm base)
+        indexTipY: local[8].y,
+        middleTipY: local[12].y,
+        ringTipY: local[16].y,
+        pinkyTipY: local[20].y,
+        // How far each fingertip drapes down relative to thumb tip Y
         indexOverThumb: local[4].y - local[8].y,
         middleOverThumb: local[4].y - local[12].y,
         ringOverThumb: local[4].y - local[16].y,
-        // Thumb lateral nesting between index MCP (5), middle MCP (9), and ring MCP (13)
-        thumbPastIndexMcp: local[4].x - local[5].x,
-        thumbBeforeRingMcp: local[13].x - local[4].x,
-        // World-space orientation flags (+Y is downward in MediaPipe image coords)
+        // Distance from curled fingertips to thumb tip (critical for E where fingertips rest ON thumb)
+        fingertipsToThumbDist:
+            (dist3(local[8], local[4]) +
+                dist3(local[12], local[4]) +
+                dist3(local[16], local[4])) /
+            3,
+        // World-space orientation flags
         palmPointingDown: eY.y > 0.22 || indexDirWorld.y > 0.30 || middleDirWorld.y > 0.32,
         indexPointingDown: indexDirWorld.y > 0.28,
-        thumbPointingDown: thumbDirWorld.y > 0.15 || local[4].y > 0.85,
         middlePointingDown: middleDirWorld.y > 0.32,
         palmPointingHorizontal: Math.abs(eY.x) > 0.5 && Math.abs(eY.y) < 0.55,
-        palmPointingUp: eY.y < -0.45,
     };
 
     // Check if target is an ASL Citizen whole-word gesture
@@ -198,6 +239,13 @@ export function evaluateComplexMatrix(
     const zScore = detectZMotion(indexTrail, profile);
     const isDynamicMotion = jScore > 0.72 || zScore > 0.72;
 
+    // Shared closed-fist check (all four fingers curled)
+    const isClosedFist =
+        profile.indexBend < 2.05 &&
+        profile.middleBend < 2.05 &&
+        profile.ringBend < 2.05 &&
+        profile.pinkyBend < 2.05;
+
     const scored = [];
     for (const [letter, proto] of Object.entries(matrixTemplates || {})) {
         if (!proto) continue;
@@ -212,86 +260,136 @@ export function evaluateComplexMatrix(
         }
 
         const rmse = dims > 0 ? Math.sqrt(sumSq / dims) : 1;
-        let score = Math.max(0, 1 - rmse * 0.72);
+        let score = Math.max(0, 1 - rmse * 0.70);
 
-        // Targeted 3D joint-overlap & angle rules for tricky letters:
-        // Q, S, T, P, N, M, A, G, H, R, U, V
-        if (letter === "Q") {
-            // Q: Index & thumb extended downward (like G pointed down).
-            // Foreshortening-resilient: checks index straightness + middle/ring/pinky curled + downward index vector.
-            const indexExtended = profile.indexBend > 1.85;
-            const othersCurled =
-                profile.middleBend < 1.95 &&
-                profile.ringBend < 1.95 &&
-                profile.pinkyBend < 1.95;
-            const thumbOpen = profile.thumb > 0.72;
-            const pointingDown = profile.indexPointingDown || profile.palmPointingDown;
-
-            if (indexExtended && othersCurled && pointingDown && thumbOpen) {
+        // =========================================================================
+        // 1. CLOSED-FIST DISAMBIGUATION: M vs. N vs. T vs. S vs. E vs. A
+        // =========================================================================
+        if (letter === "M") {
+            const threeFingersOver =
+                profile.indexOverThumb > -0.18 &&
+                profile.middleOverThumb > -0.18 &&
+                profile.ringOverThumb > -0.14;
+            const thumbUnderThree = profile.thumbAcrossRatio >= 0.52 && profile.thumbTipY < 1.05;
+            if (isClosedFist && threeFingersOver && thumbUnderThree) {
                 score = Math.max(score + 0.34, 0.85);
-            } else if (indexExtended && othersCurled && pointingDown) {
-                score = Math.max(score + 0.24, 0.78);
+            } else if (isClosedFist && threeFingersOver) {
+                score = Math.max(score + 0.18, 0.74);
+            } else {
+                score -= 0.22;
+            }
+        } else if (letter === "N") {
+            const twoFingersOver =
+                profile.indexOverThumb > -0.20 &&
+                profile.middleOverThumb > -0.20;
+            const ringNotOver =
+                profile.ringOverThumb <= -0.02 || profile.ringTipY < profile.middleTipY - 0.04;
+            const thumbUnderTwo =
+                profile.thumbAcrossRatio >= 0.22 && profile.thumbAcrossRatio <= 0.85;
+            if (isClosedFist && twoFingersOver && ringNotOver && thumbUnderTwo) {
+                score = Math.max(score + 0.34, 0.85);
+            } else if (isClosedFist && twoFingersOver && thumbUnderTwo) {
+                score = Math.max(score + 0.20, 0.76);
             } else {
                 score -= 0.20;
             }
+        } else if (letter === "T") {
+            const thumbBetweenIndexMiddle =
+                profile.thumbAcrossRatio >= -0.05 &&
+                profile.thumbAcrossRatio <= 0.44 &&
+                (profile.thumbToIndexPip < 0.48 || profile.thumbToMiddlePip < 0.48);
+            const indexWrapsThumb =
+                profile.indexOverThumb > -0.16 && profile.middleTipY < profile.indexTipY + 0.12;
+            if (isClosedFist && thumbBetweenIndexMiddle && indexWrapsThumb) {
+                score = Math.max(score + 0.35, 0.86);
+            } else if (isClosedFist && thumbBetweenIndexMiddle) {
+                score = Math.max(score + 0.22, 0.77);
+            } else {
+                score -= 0.22;
+            }
         } else if (letter === "S") {
-            // S: Tight fist with thumb wrapped across the front of the curled fingers.
-            // Works even when camera z-depth is noisy by checking thumbTipX across index/middle knuckles
-            // and thumbTipY resting over the middle phalanges (not tucked underneath like M/N, not beside like A).
-            const fist =
-                profile.indexBend < 1.85 &&
-                profile.middleBend < 1.85 &&
-                profile.ringBend < 1.85 &&
-                profile.pinkyBend < 1.85;
-            const thumbAcrossFingers =
-                profile.thumbTipX >= 0.06 &&
-                profile.thumbTipX <= 0.78 &&
+            const thumbAcrossFront =
+                profile.thumbAcrossRatio >= 0.22 &&
+                profile.thumbAcrossRatio <= 0.90 &&
                 profile.thumbTipY >= 0.55 &&
-                profile.thumbTipY <= 1.25;
-            const notTuckedUnder = profile.indexOverThumb < 0.08;
-
-            if (fist && thumbAcrossFingers && notTuckedUnder) {
-                score = Math.max(score + 0.30, 0.83);
-            } else if (fist && thumbAcrossFingers) {
+                profile.thumbTipY <= 1.15;
+            const fingertipsNotDrapedOverThumb =
+                profile.indexOverThumb < 0.04 && profile.middleOverThumb < 0.04;
+            const notE = profile.fingertipsToThumbDist > 0.34;
+            if (isClosedFist && thumbAcrossFront && fingertipsNotDrapedOverThumb && notE) {
+                score = Math.max(score + 0.34, 0.85);
+            } else if (isClosedFist && thumbAcrossFront && notE) {
                 score = Math.max(score + 0.18, 0.75);
             } else {
-                score -= 0.16;
+                score -= 0.20;
             }
-        } else if (letter === "T") {
-            // T: Fist with thumb tucked specifically between index and middle fingers
-            // (thumb tip sits close to index/middle PIP joints and index curls over/around thumb).
-            const fist =
-                profile.indexBend < 1.95 &&
-                profile.middleBend < 1.85 &&
-                profile.ringBend < 1.85 &&
-                profile.pinkyBend < 1.85;
-            const thumbBetweenIndexMiddle =
-                profile.thumbTipX >= -0.05 &&
-                profile.thumbTipX <= 0.45 &&
-                (profile.thumbToIndexPip < 0.45 || profile.thumbToMiddlePip < 0.45);
-            const indexOverOrBesideThumb =
-                profile.indexOverThumb > -0.18 && profile.middleOverThumb <= 0.08;
-
-            if (fist && thumbBetweenIndexMiddle && indexOverOrBesideThumb) {
-                score = Math.max(score + 0.32, 0.84);
-            } else if (fist && thumbBetweenIndexMiddle) {
-                score = Math.max(score + 0.20, 0.76);
+        } else if (letter === "E") {
+            const tipsRestingOnThumb = profile.fingertipsToThumbDist <= 0.44;
+            const thumbTuckedLow = profile.thumbTipY <= 0.86 && profile.thumbAcrossRatio >= 0.10;
+            if (isClosedFist && tipsRestingOnThumb && thumbTuckedLow) {
+                score = Math.max(score + 0.36, 0.87);
+            } else if (isClosedFist && tipsRestingOnThumb) {
+                score = Math.max(score + 0.22, 0.77);
             } else {
-                score -= 0.16;
+                score -= 0.20;
             }
         } else if (letter === "A") {
-            // A: Closed fist with thumb resting upright on the outer side of the index finger
-            const fist =
-                profile.indexBend < 1.85 &&
-                profile.middleBend < 1.85 &&
-                profile.ringBend < 1.85 &&
-                profile.pinkyBend < 1.85;
-            const thumbBeside = profile.thumbTipX < 0.08 && profile.thumbTipY > 0.55;
-            if (fist && thumbBeside) {
-                score = Math.max(score + 0.26, 0.81);
+            const thumbBeside = profile.thumbAcrossRatio < 0.14 && profile.thumbTipY > 0.65;
+            if (isClosedFist && thumbBeside) {
+                score = Math.max(score + 0.30, 0.84);
             } else {
-                score -= 0.16;
+                score -= 0.20;
             }
+
+            // =========================================================================
+            // 2. TWO-FINGER UPRIGHT DISAMBIGUATION: R vs. U vs. V
+            // =========================================================================
+        } else if (letter === "R") {
+            const twoUp =
+                profile.indexBend > 2.25 &&
+                profile.middleBend > 2.25 &&
+                profile.ringBend < 1.9 &&
+                profile.pinkyBend < 1.9;
+            const tipsCrossed =
+                profile.indexMiddleTipGapX <= 0.06 ||
+                profile.indexMiddleTipGapX < profile.indexMiddlePipGapX * 0.45;
+            if (twoUp && tipsCrossed) {
+                score = Math.max(score + 0.35, 0.87);
+            } else {
+                score -= 0.26;
+            }
+        } else if (letter === "U") {
+            const twoUp =
+                profile.indexBend > 2.3 &&
+                profile.middleBend > 2.3 &&
+                profile.ringBend < 1.9 &&
+                profile.pinkyBend < 1.9;
+            const parallelAndTouch =
+                profile.indexMiddleTipGapX > 0.06 &&
+                profile.indexMiddleTipDist >= 0.12 &&
+                profile.indexMiddleTipDist <= 0.38;
+            if (twoUp && parallelAndTouch) {
+                score = Math.max(score + 0.34, 0.86);
+            } else {
+                score -= 0.24;
+            }
+        } else if (letter === "V") {
+            const twoUp =
+                profile.indexBend > 2.3 &&
+                profile.middleBend > 2.3 &&
+                profile.ringBend < 1.9 &&
+                profile.pinkyBend < 1.9;
+            const spreadApart =
+                profile.indexMiddleTipGapX > 0.18 && profile.indexMiddleTipDist > 0.38;
+            if (twoUp && spreadApart) {
+                score = Math.max(score + 0.34, 0.86);
+            } else {
+                score -= 0.24;
+            }
+
+            // =========================================================================
+            // 3. EXISTING CALIBRATED LETTERS (P, Q, K, G, H, J, Z)
+            // =========================================================================
         } else if (letter === "P") {
             const indexAndMiddleOpen = profile.indexBend > 1.85 && profile.middleBend > 1.65;
             const ringAndPinkyCurled = profile.ringBend < 1.95 && profile.pinkyBend < 1.95;
@@ -311,56 +409,22 @@ export function evaluateComplexMatrix(
             } else {
                 score -= 0.18;
             }
-        } else if (letter === "N") {
-            const fourCurled =
-                profile.indexBend < 2.05 &&
-                profile.middleBend < 2.05 &&
-                profile.ringBend < 1.85 &&
-                profile.pinkyBend < 1.85;
-            const twoOverThumb =
-                profile.indexOverThumb > -0.22 &&
-                profile.middleOverThumb > -0.22;
-            const ringTuckedLower =
-                profile.ringOverThumb <= -0.02 || profile.ring < profile.middle - 0.04;
-            const thumbNestedUnderIndexMiddle =
-                profile.thumbPastIndexMcp > -0.15 && profile.thumbBeforeRingMcp > -0.18;
+        } else if (letter === "Q") {
+            const indexExtended = profile.indexBend > 1.85;
+            const othersCurled =
+                profile.middleBend < 1.95 &&
+                profile.ringBend < 1.95 &&
+                profile.pinkyBend < 1.95;
+            const thumbOpen = profile.thumb > 0.72;
+            const pointingDown = profile.indexPointingDown || profile.palmPointingDown;
 
-            if (fourCurled && twoOverThumb && ringTuckedLower && thumbNestedUnderIndexMiddle) {
-                score = Math.max(score + 0.30, 0.82);
-            } else if (fourCurled && twoOverThumb && thumbNestedUnderIndexMiddle) {
-                score = Math.max(score + 0.20, 0.75);
+            if (indexExtended && othersCurled && pointingDown && thumbOpen) {
+                score = Math.max(score + 0.34, 0.85);
+            } else if (indexExtended && othersCurled && pointingDown) {
+                score = Math.max(score + 0.24, 0.78);
             } else {
-                score -= 0.16;
+                score -= 0.20;
             }
-        } else if (letter === "M") {
-            const fourCurled =
-                profile.indexBend < 2.05 &&
-                profile.middleBend < 2.05 &&
-                profile.ringBend < 2.05 &&
-                profile.pinkyBend < 1.85;
-            const threeOverThumb =
-                profile.indexOverThumb > -0.20 &&
-                profile.middleOverThumb > -0.20 &&
-                profile.ringOverThumb > -0.16 &&
-                profile.ring >= profile.middle - 0.03;
-            if (fourCurled && threeOverThumb) {
-                score = Math.max(score + 0.28, 0.80);
-            } else {
-                score -= 0.18;
-            }
-        } else if (letter === "R") {
-            const twoUp = profile.indexBend > 2.35 && profile.middleBend > 2.35 && profile.ringBend < 1.85;
-            const crossed = profile.indexMiddleTipGapX < 0.05;
-            score += twoUp && crossed ? 0.24 : -0.22;
-        } else if (letter === "U") {
-            const twoUp = profile.indexBend > 2.4 && profile.middleBend > 2.4 && profile.ringBend < 1.85;
-            const tightTogether =
-                profile.indexMiddleTipGapX >= 0.05 && profile.indexMiddleTipDist < 0.35;
-            score += twoUp && tightTogether ? 0.24 : -0.20;
-        } else if (letter === "V") {
-            const twoUp = profile.indexBend > 2.4 && profile.middleBend > 2.4 && profile.ringBend < 1.85;
-            const spreadApart = profile.indexMiddleTipDist >= 0.35;
-            score += twoUp && spreadApart ? 0.24 : -0.20;
         } else if (letter === "G") {
             const indexOut = profile.indexBend > 2.15 && profile.middleBend < 1.8;
             score += indexOut && profile.palmPointingHorizontal ? 0.24 : -0.16;
@@ -383,11 +447,11 @@ export function evaluateComplexMatrix(
     const best = scored[0] || { letter: "A", score: 0.4 };
     const runnerUp = scored[1] || { letter: "B", score: 0.3 };
 
-    let motionPathSummary = "3D palm-aligned static posture";
+    let motionPathSummary = `${profile.handedness} hand 3D palm-aligned posture`;
     if (jScore > 0.72) {
-        motionPathSummary = "Downward curved pinky trajectory detected (J-motion)";
+        motionPathSummary = `Downward curved pinky trajectory verified (${profile.handedness} hand J-motion)`;
     } else if (zScore > 0.72) {
-        motionPathSummary = "Zig-zag index trajectory detected (Z-motion)";
+        motionPathSummary = `Zig-zag index trajectory verified (${profile.handedness} hand Z-motion)`;
     }
 
     return {
@@ -475,7 +539,7 @@ function detectJMotion(trail, profile) {
         profile.ringBend < 1.9;
 
     if (!pinkyExtended) return 0.08;
-    if (now - lastJHitTime < 1800) return 0.91;
+    if (now - lastJHitTime < 2200) return 0.92;
     if (trail.length < 8) return 0.30;
 
     const avgScale =
@@ -486,40 +550,39 @@ function detectJMotion(trail, profile) {
 
     const dropY = (mid.y - start.y) / avgScale;
     const scoopX = Math.abs(end.x - mid.x) / avgScale;
-    if (dropY > 0.25 && scoopX > 0.18) {
+    if (dropY > 0.22 && scoopX > 0.16) {
         lastJHitTime = now;
-        return Math.min(0.97, 0.78 + (dropY + scoopX) * 0.15);
+        return Math.min(0.97, 0.80 + (dropY + scoopX) * 0.15);
     }
     return 0.36;
 }
 
 /**
- * Scale-normalized, corner-aware Z-trajectory detector:
- * Scans the recent index-fingertip trail for 3 directional strokes
- * (horizontal -> diagonal downward -> horizontal) normalized by palmScale
- * so both small/fast and large/slow Z motions trigger reliably and hold for 1.8s
- * so Nemotron's polling loop catches the completed Z.
+ * Hand-agnostic (left & right hand) Z-trajectory verifier:
+ * Checks for a true zig-zag Z shape (top horizontal stroke -> downward diagonal
+ * reversing X -> bottom horizontal stroke reversing X again) using palm-scaled
+ * coordinates, and holds the verified score (0.93) for 2.5 seconds once traced
+ * so Nemotron & lesson advancement reliably confirm the completed Z.
  */
 function detectZMotion(trail, profile) {
     const now = Date.now();
     const indexExtended =
-        profile.indexBend > 2.1 &&
+        profile.indexBend > 2.05 &&
         profile.middleBend < 1.95 &&
         profile.ringBend < 1.95 &&
         profile.pinkyBend < 1.95;
 
     if (!indexExtended) return 0.08;
-    if (now - lastZHitTime < 1800) return 0.92;
-    if (trail.length < 10) return 0.32;
+    if (now - lastZHitTime < 2500) return 0.93;
+    if (trail.length < 8) return 0.32;
 
     const avgScale =
         trail.reduce((acc, p) => acc + (p.scale || 0.12), 0) / trail.length;
 
-    // Search over candidate corner indices (i < j < k) in the trail so speed variations work
     const n = trail.length;
-    for (let i = 0; i < n - 6; i += 2) {
-        for (let j = i + 2; j < n - 4; j += 2) {
-            for (let k = j + 2; k < n - 2; k += 2) {
+    for (let i = 0; i < n - 5; i += 2) {
+        for (let j = i + 2; j < n - 3; j += 2) {
+            for (let k = j + 2; k < n - 1; k += 2) {
                 const p0 = trail[i];
                 const p1 = trail[j];
                 const p2 = trail[k];
@@ -529,35 +592,34 @@ function detectZMotion(trail, profile) {
                 const dy1 = Math.abs(p1.y - p0.y) / avgScale;
 
                 const dx2 = (p2.x - p1.x) / avgScale;
-                const dy2 = (p2.y - p1.y) / avgScale; // downward drop (+Y)
+                const dy2 = (p2.y - p1.y) / avgScale; // downward drop (+Y in image coords)
 
                 const dx3 = (p3.x - p2.x) / avgScale;
                 const dy3 = Math.abs(p3.y - p2.y) / avgScale;
 
-                // Top stroke moves sideways, diagonal drops down & reverses X, bottom stroke reverses X again
-                const validTop = Math.abs(dx1) > 0.24 && dy1 < Math.abs(dx1) * 0.9;
-                const validDiag = dy2 > 0.22 && dx1 * dx2 < 0 && Math.abs(dx2) > 0.16;
-                const validBottom = Math.abs(dx3) > 0.24 && dx2 * dx3 < 0 && dy3 < Math.abs(dx3) * 0.9;
+                const validTop = Math.abs(dx1) > 0.18 && dy1 <= Math.abs(dx1) * 1.1;
+                const validDiag = dy2 > 0.18 && dx1 * dx2 < 0 && Math.abs(dx2) > 0.12;
+                const validBottom = Math.abs(dx3) > 0.18 && dx2 * dx3 < 0 && dy3 <= Math.abs(dx3) * 1.1;
 
                 if (validTop && validDiag && validBottom) {
                     lastZHitTime = now;
                     const spanBonus = Math.min(
-                        0.16,
-                        (Math.abs(dx1) + dy2 + Math.abs(dx3)) * 0.08
+                        0.14,
+                        (Math.abs(dx1) + dy2 + Math.abs(dx3)) * 0.07
                     );
-                    return Math.min(0.97, 0.80 + spanBonus);
+                    return Math.min(0.98, 0.83 + spanBonus);
                 }
             }
         }
     }
 
-    // Give partial progress feedback while user is actively tracing the Z
+    // While actively tracing the Z, return 0.58 so Nemotron knows motion is underway (not yet completed)
     const xs = trail.map((p) => p.x);
     const ys = trail.map((p) => p.y);
     const spanX = (Math.max(...xs) - Math.min(...xs)) / avgScale;
     const spanY = (Math.max(...ys) - Math.min(...ys)) / avgScale;
-    if (spanX > 0.25 && spanY > 0.20) {
-        return 0.56;
+    if (spanX > 0.22 && spanY > 0.18) {
+        return 0.58;
     }
 
     return 0.34;
