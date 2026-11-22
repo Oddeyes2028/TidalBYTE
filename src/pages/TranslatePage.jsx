@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import PageShell from "../components/PageShell";
 import SignTracker from "../components/SignTracker";
+import SignVisualCard from "../components/SignVisualCard";
 import {
   ASL_CITIZEN_PHRASES,
   INCLUDED_DATASETS,
@@ -303,7 +304,7 @@ export default function TranslatePage({ onNavigate = () => { } }) {
             })}
           </div>
 
-          {/* Detailed Visual Demonstration Card */}
+          {/* Detailed Visual Demonstration Card with SignVisualCard Diagram */}
           <div
             style={{
               padding: 16,
@@ -316,34 +317,7 @@ export default function TranslatePage({ onNavigate = () => { } }) {
               gap: 20,
             }}
           >
-            <div
-              style={{
-                minWidth: 120,
-                padding: "14px 16px",
-                borderRadius: 16,
-                background: "rgba(247, 124, 174, 0.18)",
-                border: "1px solid rgba(247, 124, 174, 0.45)",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <span
-                style={{
-                  fontSize: currentStep.type === "gesture" ? 22 : 42,
-                  fontWeight: 700,
-                  color: colors.textBrand,
-                  textAlign: "center",
-                }}
-              >
-                {currentStep.display}
-              </span>
-              <span style={{ fontSize: 11, color: colors.pinkTranslate }}>
-                {currentStep.type === "gesture" ? "PHRASE GESTURE" : "LETTER"}
-              </span>
-            </div>
+            <SignVisualCard signKey={currentStep.token} size={156} />
 
             <div style={{ flex: "1 1 260px" }}>
               <div

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import PageShell from "../components/PageShell";
 import SignTracker from "../components/SignTracker";
 import { LESSON_LEVELS } from "../SignDatabase";
@@ -23,25 +23,73 @@ export default function LearnPage({ onNavigate = () => { } }) {
   const [levelIdx, setLevelIdx] = useState(0);
   const [stepIdx, setStepIdx] = useState(0);
   const [highestUnlockedLevel, setHighestUnlockedLevel] = useState(0);
-  // Tracks completed letters permanently so going back never re-locks levels or loses checkmarks
+  // Permanently tracks completed letters & skipped letters so users can come back anytime
   const [completedLetters, setCompletedLetters] = useState(() => new Set());
+  const [skippedLetters, setSkippedLetters] = useState(() => new Set());
+  const [secondsOnStep, setSecondsOnStep] = useState(0);
 
   const activeLevel = LESSON_LEVELS[levelIdx];
   const targetLetter = activeLevel.letters[stepIdx];
   const isCurrentLetterCompleted = completedLetters.has(targetLetter);
+  const isCurrentLetterSkipped = skippedLetters.has(targetLetter);
+  const canAdvance = isCurrentLetterCompleted || isCurrentLetterSkipped;
+
+  // 10-second timer per letter so users can skip to the next step/level and return later
+  useEffect(() => {
+    setSecondsOnStep(0);
+    if (isCurrentLetterCompleted || isCurrentLetterSkipped) return;
+
+    const timer = setInterval(() => {
+      setSecondsOnStep((prev) => prev + 1);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [levelIdx, stepIdx, isCurrentLetterCompleted, isCurrentLetterSkipped]);
 
   const handleSignSuccess = (signedLetter) => {
+    setSkippedLetters((prev) => {
+      const next = new Set(prev);
+      next.delete(signedLetter);
+      return next;
+    });
+
     setCompletedLetters((prev) => {
       const next = new Set(prev);
       next.add(signedLetter);
 
-      // Unlock next level immediately if every letter in the current level is now completed
-      const allInLevelDone = activeLevel.letters.every((ltr) => next.has(ltr));
-      if (allInLevelDone && levelIdx + 1 < LESSON_LEVELS.length) {
+      const allInLevelResolved = activeLevel.letters.every(
+        (ltr) => next.has(ltr) || skippedLetters.has(ltr)
+      );
+      if (allInLevelResolved && levelIdx + 1 < LESSON_LEVELS.length) {
         setHighestUnlockedLevel((currMax) => Math.max(currMax, levelIdx + 1));
       }
       return next;
     });
+  };
+
+  const handleSkip = () => {
+    setSkippedLetters((prev) => {
+      const next = new Set(prev);
+      next.add(targetLetter);
+
+      const allInLevelResolved = activeLevel.letters.every(
+        (ltr) => completedLetters.has(ltr) || next.has(ltr)
+      );
+      if (allInLevelResolved && levelIdx + 1 < LESSON_LEVELS.length) {
+        setHighestUnlockedLevel((currMax) => Math.max(currMax, levelIdx + 1));
+      }
+      return next;
+    });
+
+    // Advance immediately to the next letter or next level
+    if (stepIdx + 1 < activeLevel.letters.length) {
+      setStepIdx((prev) => prev + 1);
+    } else if (levelIdx + 1 < LESSON_LEVELS.length) {
+      const nextLevel = levelIdx + 1;
+      setHighestUnlockedLevel((prev) => Math.max(prev, nextLevel));
+      setLevelIdx(nextLevel);
+      setStepIdx(0);
+    }
   };
 
   const handlePrevious = () => {
@@ -69,6 +117,8 @@ export default function LearnPage({ onNavigate = () => { } }) {
   const isFinalStepOfAllLevels =
     levelIdx === LESSON_LEVELS.length - 1 &&
     stepIdx === activeLevel.letters.length - 1;
+  const skipUnlocked = secondsOnStep >= 10 && !isCurrentLetterCompleted;
+  const remainingSkipSeconds = Math.max(0, 10 - secondsOnStep);
 
   return (
     <PageShell current="learn" onNavigate={onNavigate}>
@@ -148,7 +198,7 @@ export default function LearnPage({ onNavigate = () => { } }) {
               Lesson Curriculum
             </h2>
             <span style={{ fontSize: 15, color: colors.textMuted }}>
-              Click any unlocked level or letter below to review without losing progress
+              Green = Completed • Amber = Skipped (come back anytime) • Levels stay unlocked
             </span>
           </div>
 
@@ -158,6 +208,9 @@ export default function LearnPage({ onNavigate = () => { } }) {
               const active = idx === levelIdx;
               const levelCompleted = lvl.letters.every((ltr) =>
                 completedLetters.has(ltr)
+              );
+              const hasSkippedInLevel = lvl.letters.some((ltr) =>
+                skippedLetters.has(ltr)
               );
 
               return (
@@ -185,7 +238,14 @@ export default function LearnPage({ onNavigate = () => { } }) {
                     cursor: unlocked ? "pointer" : "not-allowed",
                   }}
                 >
-                  {lvl.title} {levelCompleted ? "✓" : unlocked ? "" : "🔒"}
+                  {lvl.title}{" "}
+                  {levelCompleted
+                    ? "✓"
+                    : hasSkippedInLevel
+                      ? "↺"
+                      : unlocked
+                        ? ""
+                        : "🔒"}
                 </button>
               );
             })}
@@ -202,12 +262,17 @@ export default function LearnPage({ onNavigate = () => { } }) {
           >
             {activeLevel.letters.map((letter, idx) => {
               const done = completedLetters.has(letter);
+              const skipped = skippedLetters.has(letter) && !done;
               const current = idx === stepIdx;
+              const prevLetter = idx > 0 ? activeLevel.letters[idx - 1] : null;
               const canJumpTo =
                 done ||
+                skipped ||
                 idx <= stepIdx ||
                 levelIdx < highestUnlockedLevel ||
-                (idx > 0 && completedLetters.has(activeLevel.letters[idx - 1]));
+                (prevLetter &&
+                  (completedLetters.has(prevLetter) ||
+                    skippedLetters.has(prevLetter)));
 
               return (
                 <button
@@ -215,34 +280,48 @@ export default function LearnPage({ onNavigate = () => { } }) {
                   disabled={!canJumpTo}
                   onClick={() => setStepIdx(idx)}
                   title={
-                    canJumpTo
-                      ? `Practice letter ${letter}`
-                      : `Complete ${activeLevel.letters[idx - 1]} first`
+                    done
+                      ? `${letter} completed — click to review`
+                      : skipped
+                        ? `${letter} skipped — click to practice now`
+                        : canJumpTo
+                          ? `Practice letter ${letter}`
+                          : `Complete or skip ${prevLetter} first`
                   }
                   style={{
-                    width: 44,
-                    height: 44,
+                    width: 46,
+                    height: 46,
                     borderRadius: 12,
                     display: "inline-flex",
+                    flexDirection: "column",
                     alignItems: "center",
                     justifyContent: "center",
                     fontFamily,
                     fontWeight: 700,
-                    fontSize: 18,
+                    fontSize: 17,
                     cursor: canJumpTo ? "pointer" : "not-allowed",
                     background: done
                       ? "rgba(46, 160, 105, 0.35)"
-                      : current
-                        ? colors.pinkLearn
-                        : "rgba(255,246,250,0.08)",
+                      : skipped
+                        ? "rgba(245, 158, 11, 0.28)"
+                        : current
+                          ? colors.pinkLearn
+                          : "rgba(255,246,250,0.08)",
                     color:
-                      current && !done ? colors.textOnPink : colors.textWhite,
+                      current && !done && !skipped
+                        ? colors.textOnPink
+                        : colors.textWhite,
                     border: current
                       ? "2px solid #fff"
-                      : "1px solid rgba(255,246,250,0.2)",
+                      : skipped
+                        ? "1px solid rgba(251, 191, 36, 0.65)"
+                        : "1px solid rgba(255,246,250,0.2)",
                   }}
                 >
-                  {letter}
+                  <span>{letter}</span>
+                  {skipped && (
+                    <span style={{ fontSize: 9, lineHeight: 1 }}>SKIPPED</span>
+                  )}
                 </button>
               );
             })}
@@ -300,15 +379,47 @@ export default function LearnPage({ onNavigate = () => { } }) {
               ← Previous Letter
             </button>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              {!isCurrentLetterCompleted && (
-                <span style={{ fontSize: 15, color: colors.textMuted }}>
-                  Sign "{targetLetter}" accurately to unlock the next step
-                </span>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              {!isCurrentLetterCompleted && !isFinalStepOfAllLevels && (
+                <button
+                  disabled={!skipUnlocked && !isCurrentLetterSkipped}
+                  onClick={handleSkip}
+                  style={{
+                    border: "1px solid rgba(255,246,250,0.28)",
+                    borderRadius: 12,
+                    padding: "12px 20px",
+                    fontFamily,
+                    fontWeight: 600,
+                    fontSize: 15,
+                    background:
+                      skipUnlocked || isCurrentLetterSkipped
+                        ? "rgba(245, 158, 11, 0.25)"
+                        : "rgba(255,246,250,0.06)",
+                    color:
+                      skipUnlocked || isCurrentLetterSkipped
+                        ? "#fde68a"
+                        : colors.textPlaceholder,
+                    cursor:
+                      skipUnlocked || isCurrentLetterSkipped
+                        ? "pointer"
+                        : "not-allowed",
+                  }}
+                >
+                  {skipUnlocked || isCurrentLetterSkipped
+                    ? "Skip for now (come back later) ⏭"
+                    : `Skip available in ${remainingSkipSeconds}s`}
+                </button>
               )}
 
               <button
-                disabled={!isCurrentLetterCompleted || isFinalStepOfAllLevels}
+                disabled={!canAdvance || isFinalStepOfAllLevels}
                 onClick={handleNext}
                 style={{
                   border: "none",
@@ -317,16 +428,16 @@ export default function LearnPage({ onNavigate = () => { } }) {
                   fontFamily,
                   fontWeight: 600,
                   fontSize: 17,
-                  background: isCurrentLetterCompleted
+                  background: canAdvance
                     ? colors.pinkCta
                     : "rgba(255,246,250,0.15)",
-                  color: isCurrentLetterCompleted
+                  color: canAdvance
                     ? colors.textOnPink
                     : colors.textPlaceholder,
-                  cursor: isCurrentLetterCompleted ? "pointer" : "not-allowed",
+                  cursor: canAdvance ? "pointer" : "not-allowed",
                 }}
               >
-                {isFinalStepOfAllLevels && isCurrentLetterCompleted
+                {isFinalStepOfAllLevels && canAdvance
                   ? "All Levels Complete!"
                   : stepIdx + 1 < activeLevel.letters.length
                     ? `Next Letter (${activeLevel.letters[stepIdx + 1]}) →`
@@ -339,4 +450,3 @@ export default function LearnPage({ onNavigate = () => { } }) {
     </PageShell>
   );
 }
-

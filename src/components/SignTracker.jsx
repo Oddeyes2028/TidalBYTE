@@ -11,6 +11,7 @@ import {
     resetMotionHistory,
 } from "../utils/complexMatrixEngine";
 import { getNemotronFeedback } from "../services/nemotronService";
+import SignVisualCard from "./SignVisualCard";
 import { colors, fontFamily } from "./theme";
 
 const pinkButton = {
@@ -27,7 +28,8 @@ const pinkButton = {
 };
 
 /**
- * Live camera + MediaPipe Holistic skeleton overlay + Multi-Dataset Complex Matrix + NVIDIA Nemotron coach.
+ * Live camera + MediaPipe Holistic skeleton overlay + Reference Hand Diagram +
+ * Multi-Dataset Complex Matrix + NVIDIA Nemotron coach.
  */
 export default function SignTracker({
     targetSign = "A",
@@ -239,7 +241,7 @@ export default function SignTracker({
                 </span>
             </div>
 
-            {/* Camera stage + Nemotron Real-time Feedback side by side */}
+            {/* Camera stage + Reference Visual + Nemotron Real-time Feedback */}
             <div
                 style={{
                     display: "flex",
@@ -251,7 +253,7 @@ export default function SignTracker({
                 {/* Live Video + Skeleton Canvas */}
                 <div
                     style={{
-                        flex: "522 1 300px",
+                        flex: "460 1 280px",
                         minHeight: 360,
                         position: "relative",
                         borderRadius: 16,
@@ -282,7 +284,7 @@ export default function SignTracker({
                                     color: colors.textMuted,
                                 }}
                             >
-                                Click "Start camera" below to begin real-time ASL tracking.
+                                Match the reference hand diagram on the right, then click "Start camera".
                             </p>
                         </div>
                     )}
@@ -318,10 +320,26 @@ export default function SignTracker({
                     />
                 </div>
 
+                {/* Visual Hand Reference Card on the side */}
+                <div
+                    style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 8,
+                    }}
+                >
+                    <SignVisualCard signKey={targetSign} size={196} />
+                    <span style={{ fontSize: 12, color: colors.textMuted }}>
+                        Aim for this hand posture
+                    </span>
+                </div>
+
                 {/* NVIDIA Nemotron + Complex Matrix Feedback Panel */}
                 <div
                     style={{
-                        flex: "520 1 300px",
+                        flex: "440 1 280px",
                         padding: 20,
                         borderRadius: 16,
                         background: coaching.isCorrect
